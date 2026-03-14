@@ -27,8 +27,12 @@ export default function Innstillinger() {
 
   async function save() {
     setSaving(true)
-    await sb.from('businesses').update({ name, phone, google_review_link: link }).eq('id', userId)
-    setSaved(true); setTimeout(() => setSaved(false), 3000)
+    const { error } = await sb.from('businesses').update({ name, phone, google_review_link: link }).eq('id', userId)
+    if (error) {
+      alert('Kunne ikke lagre: ' + error.message)
+    } else {
+      setSaved(true); setTimeout(() => setSaved(false), 3000)
+    }
     setSaving(false)
   }
 
@@ -71,7 +75,7 @@ export default function Innstillinger() {
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Telefonnummer</label>
-              <input className="input" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+47 900 00 000" type="tel" />
+              <input className="input" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+47 900 00 000 (vises i SMS-svar)" type="tel" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Google-anmeldelseslenke</label>

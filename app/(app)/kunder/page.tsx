@@ -27,15 +27,24 @@ export default function Kunder() {
     load()
   }, [])
 
+  function formatPhone(p: string): string {
+    let cleaned = p.replace(/\s/g, '').replace(/^0/, '+47')
+    if (!cleaned.startsWith('+')) cleaned = '+47' + cleaned
+    return cleaned
+  }
+
   async function addCustomer() {
     if (!name || !phone || !date || !time) return
     setLoading(true)
+    const formattedPhone = formatPhone(phone)
     const apt = new Date(`${date}T${time}`).toISOString()
-    const { data, error } = await sb.from('customers').insert({ business_id: bizId, name, phone, appointment_time: apt }).select().single()
+    const { data, error } = await sb.from('customers').insert({ business_id: bizId, name, phone: formattedPhone, appointment_time: apt }).select().single()
     if (!error && data) {
       setCustomers(prev => [data, ...prev])
       setName(''); setPhone(''); setDate(''); setTime('')
       setSuccess(true); setTimeout(() => setSuccess(false), 3000)
+    } else {
+      alert('Kunne ikke legge til kunde: ' + (error?.message ?? 'Ukjent feil'))
     }
     setLoading(false)
   }
@@ -67,7 +76,7 @@ export default function Kunder() {
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Telefon</label>
-              <input className="input" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+47 900 00 000" type="tel" />
+              <input className="input" value={phone} onChange={e => setPhone(e.target.value)} placeholder="900 00 000 eller +47 900 00 000" type="tel" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Dato</label>

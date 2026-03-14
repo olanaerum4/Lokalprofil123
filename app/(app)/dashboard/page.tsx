@@ -9,6 +9,9 @@ export default async function Dashboard() {
 
   const { data: biz } = await sb.from('businesses').select('*').eq('id', user.id).single()
   if (!biz) redirect('/innstillinger')
+  
+  // Redirect to settings if business name is not set
+  if (!biz.name) redirect('/innstillinger')
 
   const today = new Date()
   const todayStart = new Date(today); todayStart.setHours(0,0,0,0)
