@@ -1,6 +1,7 @@
 export async function sendSMS(to: string, message: string) {
   const u = process.env.ELKS_USERNAME!
   const p = process.env.ELKS_PASSWORD!
+  const fromNumber = process.env.ELKS_FROM_NUMBER || 'LokalProfil'
   try {
     const r = await fetch('https://api.46elks.com/a1/sms', {
       method: 'POST',
@@ -9,7 +10,7 @@ export async function sendSMS(to: string, message: string) {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams({
-        from: 'LokalProfil',
+        from: fromNumber,
         to,
         message,
         whenreply: `${process.env.NEXT_PUBLIC_APP_URL}/api/webhook`,
