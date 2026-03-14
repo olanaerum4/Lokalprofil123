@@ -2,8 +2,6 @@ import { redirect } from 'next/navigation'
 import { serverClient } from '@/lib/supabase-server'
 import Sidebar from '@/components/Sidebar'
 
-export const dynamic = 'force-dynamic'
-
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const sb = await serverClient()
   const { data: { user } } = await sb.auth.getUser()

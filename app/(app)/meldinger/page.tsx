@@ -1,9 +1,29 @@
 'use client'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { browserClient } from '@/lib/supabase'
 import { Customer } from '@/lib/types'
 
 type Msg = { id: string; direction: 'in' | 'out'; body: string; created_at: string }
+
+function fmtTime(ts: string) {
+  const d = new Date(ts)
+  const today = new Date()
+  if (d.toDateString() === today.toDateString())
+    return d.toLocaleTimeString('nb-NO', { timeZone: 'Europe/Oslo', hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleDateString('nb-NO', { timeZone: 'Europe/Oslo', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+function MsgSkeleton() {
+  return (
+    <div className="flex flex-col gap-3 p-4">
+      {[...Array(4)].map((_, i) => (
+        <div key={i} className={`flex ${i % 2 === 0 ? 'justify-end' : 'justify-start'}`}>
+          <div className={`h-10 rounded-2xl bg-gray-100 animate-pulse ${i % 2 === 0 ? 'w-48' : 'w-64'}`} />
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default function Meldinger() {
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -11,6 +31,8 @@ export default function Meldinger() {
   const [messages, setMessages] = useState<Msg[]>([])
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [loadingMsgs, setLoadingMsgs] = useState(false)
+  const [loadingList, setLoadingList] = useState(true)
   const [bizId, setBizId] = useState('')
   const [search, setSearch] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -23,13 +45,22 @@ export default function Meldinger() {
       setBizId(user.id)
       const { data } = await sb.from('customers').select('*').eq('business_id', user.id).order('created_at', { ascending: false })
       setCustomers(data ?? [])
+      setLoadingList(false)
     }
     load()
+  }, [])
+
+  const loadMessages = useCallback(async (customerId: string) => {
+    setLoadingMsgs(true)
+    const { data } = await sb.from('messages').select('*').eq('customer_id', customerId).order('created_at')
+    setMessages(data ?? [])
+    setLoadingMsgs(false)
   }, [])
 
   useEffect(() => {
     if (!selected) return
     loadMessages(selected.id)
+
     const channel = sb.channel(`msgs-${selected.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `customer_id=eq.${selected.id}` },
         payload => setMessages(prev => [...prev, payload.new as Msg]))
@@ -39,21 +70,14 @@ export default function Meldinger() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  async function loadMessages(customerId: string) {
-    const { data } = await sb.from('messages').select('*').eq('customer_id', customerId).order('created_at')
-    setMessages(data ?? [])
-  }
-
   async function sendMessage() {
     if (!text.trim() || !selected) return
     setSending(true)
     const body = text.trim(); setText('')
-    // Save to DB
     const { data } = await sb.from('messages').insert({
       business_id: bizId, customer_id: selected.id, direction: 'out', body,
     }).select().single()
     if (data) setMessages(prev => [...prev, data])
-    // Send via API
     await fetch('/api/send-sms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -66,20 +90,9 @@ export default function Meldinger() {
     c.name.toLowerCase().includes(search.toLowerCase()) || c.phone.includes(search)
   )
 
-  function fmtTime(ts: string) {
-    const d = new Date(ts)
-    const today = new Date()
-    if (d.toDateString() === today.toDateString())
-      return d.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })
-    return d.toLocaleDateString('nb-NO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-  }
-
-  // Get last message per customer for preview
-  const lastMsg: Record<string, Msg> = {}
-
   return (
-    <div className="flex h-screen md:h-[calc(100vh-0px)] overflow-hidden">
-      {/* Customer list */}
+    <div className="flex h-screen overflow-hidden">
+      {/* Sidebar */}
       <div className={`${selected ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-72 bg-white border-r border-gray-100 flex-shrink-0`}>
         <div className="p-4 border-b border-gray-100">
           <h1 className="text-lg font-bold text-gray-900 mb-3">Meldinger</h1>
@@ -88,10 +101,28 @@ export default function Meldinger() {
             <input className="input pl-9 text-xs" placeholder="Søk kunde..." value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </div>
+
         <div className="flex-1 overflow-y-auto">
-          {filtered.length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-12 px-4">Ingen kunder ennå.<br/>Legg til kunder under Kunder.</p>
+          {loadingList && (
+            <div className="p-4 space-y-3">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="flex items-center gap-3 animate-pulse">
+                  <div className="w-9 h-9 rounded-full bg-gray-100 flex-shrink-0" />
+                  <div className="flex-1 space-y-1.5"><div className="h-3 bg-gray-100 rounded w-28" /><div className="h-2.5 bg-gray-100 rounded w-20" /></div>
+                </div>
+              ))}
+            </div>
           )}
+
+          {!loadingList && filtered.length === 0 && (
+            <div className="text-center py-12 px-4">
+              <p className="text-sm text-gray-400">
+                {customers.length === 0 ? 'Ingen kunder ennå.' : 'Ingen treff'}
+              </p>
+              {customers.length === 0 && <p className="text-xs text-gray-300 mt-1">Legg til kunder under Kunder.</p>}
+            </div>
+          )}
+
           {filtered.map(c => (
             <button key={c.id} onClick={() => setSelected(c)}
               className={`w-full flex items-center gap-3 px-4 py-3.5 border-b border-gray-50 text-left transition-colors hover:bg-gray-50 ${selected?.id === c.id ? 'bg-green-50' : ''}`}>
@@ -110,7 +141,6 @@ export default function Meldinger() {
       {/* Chat panel */}
       {selected ? (
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Header */}
           <div className="bg-white border-b border-gray-100 px-4 py-3 flex items-center gap-3">
             <button onClick={() => setSelected(null)} className="md:hidden text-gray-400 hover:text-gray-700 mr-1">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/></svg>
@@ -124,39 +154,46 @@ export default function Meldinger() {
             </div>
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-gray-50">
-            {messages.length === 0 && (
-              <div className="text-center py-16">
-                <div className="w-12 h-12 rounded-full bg-white border border-gray-200 flex items-center justify-center mx-auto mb-3">
-                  <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+          <div className="flex-1 overflow-y-auto bg-gray-50">
+            {loadingMsgs ? (
+              <MsgSkeleton />
+            ) : messages.length === 0 ? (
+              <div className="flex items-center justify-center h-full text-center px-4">
+                <div>
+                  <div className="w-12 h-12 rounded-full bg-white border border-gray-200 flex items-center justify-center mx-auto mb-3">
+                    <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+                  </div>
+                  <p className="text-sm text-gray-400">Ingen meldinger ennå</p>
+                  <p className="text-xs text-gray-300 mt-1">SMS-påminnelser vises her automatisk</p>
                 </div>
-                <p className="text-sm text-gray-400">Ingen meldinger ennå</p>
-                <p className="text-xs text-gray-300 mt-1">Send en melding for å starte samtalen</p>
+              </div>
+            ) : (
+              <div className="p-4 space-y-2">
+                {messages.map(m => (
+                  <div key={m.id} className={`flex ${m.direction === 'out' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-xs lg:max-w-sm px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                      m.direction === 'out'
+                        ? 'bg-green-600 text-white rounded-br-md'
+                        : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
+                    }`}>
+                      <p>{m.body}</p>
+                      <p className={`text-[10px] mt-1 ${m.direction === 'out' ? 'text-green-200' : 'text-gray-400'}`}>
+                        {fmtTime(m.created_at)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                <div ref={bottomRef} />
               </div>
             )}
-            {messages.map(m => (
-              <div key={m.id} className={`flex ${m.direction === 'out' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-xs lg:max-w-sm px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                  m.direction === 'out'
-                    ? 'bg-green-600 text-white rounded-br-md'
-                    : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
-                }`}>
-                  <p>{m.body}</p>
-                  <p className={`text-[10px] mt-1 ${m.direction === 'out' ? 'text-green-200' : 'text-gray-400'}`}>{fmtTime(m.created_at)}</p>
-                </div>
-              </div>
-            ))}
-            <div ref={bottomRef} />
           </div>
 
-          {/* Input */}
           <div className="bg-white border-t border-gray-100 p-3 flex gap-2">
             <textarea
               value={text}
               onChange={e => setText(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
-              placeholder="Skriv en melding..."
+              placeholder="Skriv en melding... (Enter for å sende)"
               rows={1}
               className="flex-1 input resize-none py-2.5 text-sm"
               style={{ minHeight: '42px', maxHeight: '120px' }}
