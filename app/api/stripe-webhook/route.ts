@@ -29,7 +29,18 @@ export async function POST(req: Request) {
     const sb = adminClient()
 
     // Finn bedriften på e-post og aktiver + lagre stripe_customer_id
-    const { data: user } = await sb.auth.admin.getUserByEmail(email) as any
+    const { data: { users }, error: listError } = await sb.auth.admin.listUsers({
+      page: 1,
+      perPage: 100
+    })
+    
+    if (listError) {
+      console.error('Error listing users:', listError)
+      return NextResponse.json({ ok: false, error: 'Failed to find user' }, { status: 500 })
+    }
+    
+    const user = users?.find((u: any) => u.email === email)
+    
     if (user?.id) {
       await sb.from('businesses')
         .update({
