@@ -17,12 +17,33 @@ export async function middleware(req: NextRequest) {
       },
     }
   )
+
   const { data: { user } } = await supabase.auth.getUser()
   const path = req.nextUrl.pathname
-  const isAuth = path.startsWith('/login') || path.startsWith('/register')
-  const isApi = path.startsWith('/api')
+  const isAuth    = path.startsWith('/login') || path.startsWith('/register')
+  const isApi     = path.startsWith('/api')
+  const isBetaling = path.startsWith('/betaling')
+
+  // Ikke innlogget → login
   if (!user && !isAuth && !isApi) return NextResponse.redirect(new URL('/login', req.url))
+
+  // Innlogget på auth-sider → dashboard
   if (user && isAuth) return NextResponse.redirect(new URL('/dashboard', req.url))
+
+  // Sjekk om kontoen er låst (bare for app-sider, ikke api/betaling)
+  if (user && !isApi && !isBetaling) {
+    const { data: biz } = await supabase
+      .from('businesses')
+      .select('is_active')
+      .eq('id', user.id)
+      .single()
+
+    // Konto funnet og låst → redirect til betalingsside
+    if (biz && biz.is_active === false) {
+      return NextResponse.redirect(new URL('/betaling', req.url))
+    }
+  }
+
   return res
 }
 
